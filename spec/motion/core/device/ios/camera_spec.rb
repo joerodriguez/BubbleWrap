@@ -10,12 +10,15 @@ end
 
 describe BubbleWrap::Device::Camera do
   before do
+    @window = UIWindow.alloc.initWithFrame(UIScreen.mainScreen.bounds)
     @controller = UIViewController.alloc.init
     @controller.instance_eval do
       def presentViewController(*args)
         true
       end
     end
+    @window.rootViewController = @controller
+    @window.makeKeyAndVisible
     @camera = BW::Device::Camera.new
   end
 
@@ -68,6 +71,9 @@ describe BubbleWrap::Device::Camera do
             [KUTTypeMovie, KUTTypeImage]
           end
 
+          def parentViewController
+          end
+
           def dismissViewControllerAnimated(*args)
             true
           end
@@ -85,11 +91,11 @@ describe BubbleWrap::Device::Camera do
         image_view = nil
         info = example_info
 
+        camera.picker
         camera.picture(media_types: [:movie, :image]) do |result|
           image_view = UIImageView.alloc.initWithImage(result[:original_image])
         end
 
-        camera.picker
         camera.imagePickerController(camera.instance_variable_get("@picker"), didFinishPickingMediaWithInfo: info)
         image_view.nil?.should == false
       end

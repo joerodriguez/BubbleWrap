@@ -122,7 +122,18 @@ module BubbleWrap
 
         presenting_controller ||= App.window.rootViewController.presentedViewController # May be nil, but handles use case of container views
         presenting_controller ||= App.window.rootViewController
-        presenting_controller.presentViewController(self.picker, animated:@options[:animated], completion: lambda {})
+
+        if Device.ipad?
+          rect = CGRectMake(
+            (Device.orientation == :portrait ? Device.screen.width/2 : Device.screen.height/2),
+            (Device.orientation == :portrait ? Device.screen.height/2 : Device.screen.width/2),
+            1,
+            1
+          )
+          popover.presentPopoverFromRect(rect, inView: presenting_controller.view, permittedArrowDirections: 0, animated: @options[:animated])
+        else
+          presenting_controller.presentViewController(self.picker, animated:@options[:animated], completion: lambda {})
+        end
       end
 
       ##########
@@ -162,8 +173,16 @@ module BubbleWrap
         @picker ||= @picker_klass.alloc.init
       end
 
+      def popover
+        @popover ||= UIPopoverController.alloc.initWithContentViewController self.picker
+      end
+
       def dismiss
-        self.picker.dismissViewControllerAnimated(@options[:animated], completion: lambda {})
+        if Device.ipad?
+          popover.dismissPopoverAnimated @options[:animated]
+        else
+          self.picker.dismissViewControllerAnimated(@options[:animated], completion: lambda {})
+        end
       end
 
       # @param [UIImagePickerControllerSourceType] source_type to check

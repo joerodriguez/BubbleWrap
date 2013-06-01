@@ -24,6 +24,7 @@ Motion::Project::App.setup do |app|
   app.identifier = 'io.bubblewrap.testSuite'
   app.specs_dir = './spec/motion'
   app.spec_files
+  app.device_family = [:iphone, :ipad]
   if Motion::Project::App.osx?
     app.spec_files -= Dir.glob("./spec/motion/**/ios/**.rb")
     ["font", "location", "media", "ui"].each do |package|
