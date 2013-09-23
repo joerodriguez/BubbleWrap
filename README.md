@@ -81,6 +81,18 @@ If you wish to only include the `Media` wrapper:
 require 'bubble-wrap/media'
 ```
 
+If you wish to only include the `Mail` wrapper:
+
+```ruby
+require 'bubble-wrap/mail'
+```
+
+If you wish to only include the `SMS` wrapper:
+
+```ruby
+require 'bubble-wrap/sms'
+```
+
 If you want to include everything (ie kitchen sink mode) you can save time and do:
 
 ```ruby
@@ -207,6 +219,8 @@ Examples:
 # true
 > Device.orientation
 # :portrait
+> Device.interface_orientation
+# :portrait
 > Device.simulator?
 # true
 > Device.ios_version
@@ -246,7 +260,7 @@ end
 
 ### JSON
 
-`BW::JSON` wraps `NSJSONSerialization` available in iOS5 and offers the same API as Ruby's JSON std lib.
+`BW::JSON` wraps `NSJSONSerialization` available in iOS5 and offers the same API as Ruby's JSON std lib. For apps building for iOS4, we suggest a different JSON alternative, like [AnyJSON](https://github.com/mattt/AnyJSON).
 
 ```ruby
 BW::JSON.generate({'foo => 1, 'bar' => [1,2,3], 'baz => 'awesome'})
@@ -271,7 +285,7 @@ def viewWillAppear(animated)
     loadAndRefresh
   end
 
-  @reload_observer = App.notification_center.observe ReloadNotification do |notification|
+  @reload_observer = App.notification_center.observe 'ReloadNotification' do |notification|
     loadAndRefresh
   end
 end
@@ -282,7 +296,7 @@ def viewWillDisappear(animated)
 end
 
 def reload
-  App.notification_center.post ReloadNotification
+  App.notification_center.post 'ReloadNotification'
 end
 ```
 
@@ -301,6 +315,8 @@ simple interface:
 > App::Persistence['channels'] # application specific persistence storage
 # ['NBC', 'ABC', 'Fox', 'CBS', 'PBS']
 > App::Persistence['channels'] = ['TF1', 'France 2', 'France 3']
+# ['TF1', 'France 2', 'France 3']
+> App::Persistence.delete('channels')
 # ['TF1', 'France 2', 'France 3']
 > App::Persistence['something__new'] # something previously never stored
 # nil
@@ -384,6 +400,50 @@ end
 
 # Plays in an independent modal controller
 BW::Media.play_modal("http://www.hrupin.com/wp-content/uploads/mp3/testsong_20_sec.mp3")
+```
+
+## Mail
+
+Wrapper for showing an in-app mail composer view.
+
+```ruby
+# Opens as a modal in the current UIViewController
+BW::Mail.compose {
+  delegate: self, # optional, defaults to rootViewController
+  to: [ "tom@example.com" ],
+  cc: [ "itchy@example.com", "scratchy@example.com" ],
+  bcc: [ "jerry@example.com" ],
+  html: false,
+  subject: "My Subject",
+  message: "This is my message. It isn't very long.",
+  animated: false
+} do |result, error|
+  result.sent?      # => boolean
+  result.canceled?  # => boolean
+  result.saved?     # => boolean
+  result.failed?    # => boolean
+  error             # => NSError
+end
+```
+
+## SMS
+
+Wrapper for showing an in-app message (SMS) composer view.
+
+```ruby
+# Opens as a modal in the current UIViewController
+    BW::SMS.compose (
+    {
+       delegate: self, # optional, will use root view controller by default
+       to: [ "1(234)567-8910" ],
+       message: "This is my message. It isn't very long.",
+       animated: false
+    }) {|result, error|
+       result.sent?      # => boolean
+       result.canceled?  # => boolean
+       result.failed?    # => boolean
+       error             # => NSError
+      } 
 ```
 
 ## UI
@@ -571,6 +631,20 @@ would be a Proc that takes two arguments: a float representing the
 amount of data currently received and another float representing the
 total amount of data expected.
 
+Connections can also be cancelled. Just keep a refrence,
+
+```ruby
+@conn = BW::HTTP.get("https://api.github.com/users/mattetti") do |response|
+  p response.body.to_str
+end
+```
+
+and send the `cancel` method to it asynchronously as desired. The block will not be executed.
+
+```ruby
+@conn.cancel
+```
+
 ### Gotchas
 
 Because of how RubyMotion currently works, you sometimes need to assign objects as `@instance_variables` in order to retain their callbacks.
@@ -649,6 +723,12 @@ end
 
 def when_parser_is_done
   p "The feed is entirely parsed, congratulations!"
+end
+
+def when_parser_errors
+  p "The parser encountered an error"
+  ns_error = feed_parser.parserError
+  p ns_error.localizedDescription
 end
 ```
 

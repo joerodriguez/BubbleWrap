@@ -1,8 +1,8 @@
 # Response class wrapping the results of a Query's response
-class BubbleWrap::HTTP::Response
+module BubbleWrap; module HTTP; class Response
   attr_reader :body
   attr_reader :headers
-  attr_accessor :status_code, :status_description, :error_message
+  attr_accessor :status_code, :status_description, :error_message, :error
   attr_reader :url
   attr_reader :original_url
 
@@ -18,7 +18,7 @@ class BubbleWrap::HTTP::Response
   end
 
   def ok?
-    status_code.to_s =~ /20\d/ ? true : false
+    status_code.to_s =~ /2\d\d/ ? true : false
   end
 
   def to_s
@@ -29,4 +29,4 @@ class BubbleWrap::HTTP::Response
   def update_status_description
     @status_description = status_code.nil? ? nil : NSHTTPURLResponse.localizedStringForStatusCode(status_code)
   end
-end
+end; end; end

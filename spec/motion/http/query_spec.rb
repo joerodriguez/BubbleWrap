@@ -1,4 +1,30 @@
+# -*- coding: utf-8 -*-
 describe BubbleWrap::HTTP::Query do
+
+  describe "json parameter encoding" do
+    before do
+      @json_payload = {"foo" => "bar"}
+      @json_options = {
+        payload: @json_payload,
+        format: :json
+      }
+      @json_query = BubbleWrap::HTTP::Query.new( "http://localhost:3000" , :post, @json_options )
+    end
+
+    it "should generate json body" do
+      BW::JSON.parse(@json_query.request.HTTPBody).should == @json_payload
+    end
+  end
+
+  describe "false value" do
+    before do
+      @query = BubbleWrap::HTTP::Query.new("http://www.google.com", :get, {payload: {following: false}})
+    end
+
+    it "should have right url" do
+      @query.request.URL.absoluteString.should == "http://www.google.com?following=false"
+    end
+  end
 
   before do
     @localhost_url = 'http://localhost'
@@ -137,14 +163,14 @@ describe BubbleWrap::HTTP::Query do
         }.should.not.raise NoMethodError
       end
 
-      it "should set the payload in URL only for GET and HEAD requests" do
+      it "should set the payload in URL only for GET/HEAD/OPTIONS requests" do
         [:post, :put, :delete, :patch].each do |method|
           query = BubbleWrap::HTTP::Query.new( @localhost_url , method, { payload: @payload } )
           query.instance_variable_get(:@url).description.should.equal @localhost_url
         end
 
         payload = {name: 'marin'}
-        [:get, :head].each do |method|
+        [:get, :head, :options].each do |method|
           query = BubbleWrap::HTTP::Query.new( @localhost_url , method, { payload: payload } )
           query.instance_variable_get(:@url).description.should.equal "#{@localhost_url}?name=marin"
         end
@@ -179,11 +205,10 @@ describe BubbleWrap::HTTP::Query do
         }.should.raise InvalidFileError
       end
 
-      it "sets the HTTPBody DATA to @request for all methods except GET and HEAD" do
+      it "sets the HTTPBody DATA to @request for all methods except GET/HEAD/OPTIONS" do
         payload = { name: 'apple', model: 'macbook'}
         files = { twitter: sample_data, site: "mneorr.com".dataUsingEncoding(NSUTF8StringEncoding) }
 
-        puts "\n"
         [:post, :put, :delete, :patch].each do |method|
           puts "    - #{method}\n"
           query = BubbleWrap::HTTP::Query.new( @fake_url , method, { payload: payload, files: files } )
@@ -192,7 +217,7 @@ describe BubbleWrap::HTTP::Query do
           real_payload.should.equal "--#{uuid}\r\nContent-Disposition: form-data; name=\"name\"\r\n\r\napple\r\n--#{uuid}\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\nmacbook\r\n--#{uuid}\r\nContent-Disposition: form-data; name=\"twitter\"; filename=\"twitter\"\r\nContent-Type: application/octet-stream\r\n\r\ntwitter:@mneorr\r\n--#{uuid}\r\nContent-Disposition: form-data; name=\"site\"; filename=\"site\"\r\nContent-Type: application/octet-stream\r\n\r\nmneorr.com\r\n--#{uuid}--\r\n"
         end
 
-        [:get, :head].each do |method|
+        [:get, :head, :options].each do |method|
           puts "    - #{method}\n"
           query = BubbleWrap::HTTP::Query.new( @fake_url , method, { payload: payload } )
           real_payload = NSString.alloc.initWithData(query.request.HTTPBody, encoding:NSUTF8StringEncoding)
@@ -202,12 +227,11 @@ describe BubbleWrap::HTTP::Query do
 
       it "sets the payload without conversion to-from NSString if the payload was NSData" do
         data = sample_data
-        lambda { query = create_query(data, nil) }.should.not.raise NoMethodError
+        lambda { create_query(data, nil) }.should.not.raise NoMethodError
       end
 
       it "sets the payload as a string if JSON" do
         json = "{\"foo\":42,\"bar\":\"BubbleWrap\"}"
-        puts "\n"
         [:put, :post, :delete, :patch].each do |method|
           puts "    - #{method}\n"
           query = BubbleWrap::HTTP::Query.new( @fake_url , method, { payload: json } )
@@ -222,6 +246,19 @@ describe BubbleWrap::HTTP::Query do
         uuid = query.instance_variable_get(:@boundary)
         real_payload = NSString.alloc.initWithData(query.request.HTTPBody, encoding:NSUTF8StringEncoding)
         real_payload.should.equal "--#{uuid}\r\nContent-Disposition: form-data; name=\"computer[name]\"\r\n\r\napple\r\n--#{uuid}\r\nContent-Disposition: form-data; name=\"computer[model]\"\r\n\r\nmacbook\r\n--#{uuid}--\r\n"
+      end
+
+      [["NSUTF8StringEncoding", NSUTF8StringEncoding],
+       ["NSJapaneseEUCStringEncoding", NSJapaneseEUCStringEncoding],
+       ["NSShiftJISStringEncoding", NSShiftJISStringEncoding],
+       ["NSISO2022JPStringEncoding", NSISO2022JPStringEncoding]].each do |enc_name, encoding|
+        it "sets the japanese characters payload encoded in #{enc_name}" do
+          payload = { computer: { name: '名前', model: 'モデル'} }
+          query = BubbleWrap::HTTP::Query.new( @fake_url, :post, { payload: payload, encoding: encoding })
+          uuid = query.instance_variable_get(:@boundary)
+          real_payload = NSString.alloc.initWithData(query.request.HTTPBody, encoding:encoding)
+          real_payload.should.equal "--#{uuid}\r\nContent-Disposition: form-data; name=\"computer[name]\"\r\n\r\n#{payload[:computer][:name]}\r\n--#{uuid}\r\nContent-Disposition: form-data; name=\"computer[model]\"\r\n\r\n#{payload[:computer][:model]}\r\n--#{uuid}--\r\n"
+        end
       end
 
     end
@@ -479,6 +516,12 @@ describe BubbleWrap::HTTP::Query do
       @query.response.error_message.should.equal @fake_error.localizedDescription
     end
 
+    it "should set the error object to response object" do
+      @query.response.error.should.equal nil
+      @query.connection(nil, didFailWithError:@fake_error)
+      @query.response.error.code.should.equal @fake_error.code
+    end
+
     it "should check if there's a callback block and pass the response in" do
       expected_response = BubbleWrap::HTTP::Response.new
       real_response = nil
@@ -577,8 +620,9 @@ describe BubbleWrap::HTTP::Query do
         end
       end
 
-      it "sets the error message on response" do
+      it "sets the error message/code on response" do
         @real_response.error_message.should.equal "Too many redirections"
+        @real_response.error.code.should.equal NSURLErrorHTTPTooManyRedirects
       end
 
       it "sets the request.done_loading" do
@@ -608,10 +652,18 @@ describe BubbleWrap::HTTP::Query do
       @query.connection(nil, didReceiveAuthenticationChallenge:@challenge)
     end
 
-    it "should cancel the authentication if the failure count was not 0" do
-      @challenge.previousFailureCount = 1
-      @query.connection(nil, didReceiveAuthenticationChallenge:@challenge)
-      @challenge.sender.was_cancelled.should.equal true
+    describe "given the failure count was not 0" do
+      before { @challenge.previousFailureCount = 1 }
+
+      it "should cancel the authentication" do
+        @query.connection(nil, didReceiveAuthenticationChallenge:@challenge)
+        @challenge.sender.was_cancelled.should.equal true
+      end
+
+      it "should set the response fields" do
+        @query.connection(nil, didReceiveAuthenticationChallenge:@challenge)
+        @query.response.status_code.should.equal @challenge.failureResponse.statusCode
+      end
     end
 
     it "should pass in Credentials and the challenge itself to the sender" do
@@ -631,6 +683,23 @@ describe BubbleWrap::HTTP::Query do
       @challenge.sender.continue_without_credential.should.equal true
     end
 
+  end
+
+  describe 'cancel' do
+    before do
+      @doa_query = BubbleWrap::HTTP::Query.new(@localhost_url, :get)
+      @doa_query.cancel
+    end
+
+    it "should cancel the connection" do
+      @doa_query.connection.was_cancelled.should.equal true
+    end
+
+    if App.ios?
+      it "should turn off the network indicator" do
+        UIApplication.sharedApplication.isNetworkActivityIndicatorVisible.should.equal false
+      end
+    end
   end
 
   describe "empty payload" do
@@ -695,10 +764,14 @@ describe BubbleWrap::HTTP::Query do
   end
 
   class FakeChallenge
-    attr_accessor :previousFailureCount
+    attr_accessor :previousFailureCount, :failureResponse
 
     def sender
       @fake_sender ||= FakeSender.new
+    end
+
+    def failureResponse
+      @failureResponse ||= FakeURLResponse.new(401, { bla: "123" }, 123)
     end
   end
 
@@ -707,7 +780,7 @@ describe BubbleWrap::HTTP::Query do
   end
 
   class FakeURLConnection < NSURLConnection
-    attr_reader :delegate, :request, :was_started
+    attr_reader :delegate, :request, :was_started, :was_cancelled
     def initialize(request, delegate)
       @request = request
       @delegate = delegate
@@ -715,7 +788,11 @@ describe BubbleWrap::HTTP::Query do
     end
     def start
       @was_started = true
+      @was_cancelled = false
       super
+    end
+    def cancel
+      @was_cancelled = true
     end
   end
 

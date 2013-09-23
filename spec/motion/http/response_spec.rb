@@ -9,12 +9,12 @@ describe BubbleWrap::HTTP::Response do
     @response.instance_variable_get(:@url).should == 'http://localhost'
   end
 
-  it "says OK status code 20x" do
+  it "says OK status code 2xx" do
     @response.ok?.should.equal true
-    (200..209).each do |code|
+    (200..211).each do |code|
       BubbleWrap::HTTP::Response.new(status_code: code).ok?.should.be.true
     end
-    [100..101, 300..307, 400..417, 500..505].inject([]){|codes, rg| codes += rg.to_a}.each do |code|
+    [100..101, 300..307, 400..417, 500..505].inject([]){|codes, rg| codes + rg.to_a}.each do |code|
       BubbleWrap::HTTP::Response.new(status_code: code).ok?.should.be.false
     end
   end
@@ -39,6 +39,7 @@ describe BubbleWrap::HTTP::Response do
     @response.should.respond_to :url
     @response.should.respond_to :status_code=
     @response.should.respond_to :error_message=
+    @response.should.respond_to :error=
   end
 
 end

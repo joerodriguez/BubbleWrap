@@ -11,13 +11,15 @@ Bundler.require
 require 'bubble-wrap/all'
 require 'bubble-wrap/test'
 
-module Motion; module Project
-  class Config
-    def spec_files=(spec_files)
-      @spec_files = spec_files
+module Motion
+  module Project
+    class Config
+      def spec_files=(spec_files)
+        @spec_files = spec_files
+      end
     end
   end
-end; end
+end
 
 Motion::Project::App.setup do |app|
   app.name = 'testSuite'
@@ -27,7 +29,7 @@ Motion::Project::App.setup do |app|
   app.device_family = [:iphone, :ipad]
   if Motion::Project::App.osx?
     app.spec_files -= Dir.glob("./spec/motion/**/ios/**.rb")
-    ["font", "location", "media", "ui"].each do |package|
+    ["font", "location", "media", "ui", "mail", "sms"].each do |package|
       app.spec_files -= Dir.glob("./spec/motion/#{package}/**/*.rb")
     end
   else

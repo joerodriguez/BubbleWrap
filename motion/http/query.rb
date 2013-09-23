@@ -1,5 +1,5 @@
 # Class wrapping NSConnection and often used indirectly by the BubbleWrap::HTTP module methods.
-class BubbleWrap::HTTP::Query
+module BubbleWrap; module HTTP; class Query
   attr_accessor :request
   attr_accessor :connection
   attr_accessor :credentials # username & password has a hash
@@ -20,7 +20,7 @@ class BubbleWrap::HTTP::Query
   #
   # ==== Options
   # :payload<String>   - data to pass to a POST, PUT, DELETE query.
-  # :delegator         - Proc, class or object to call when the file is downloaded.
+  # :action            - Proc, class or object to call when the file is downloaded.
   # a proc will receive a Response object while the passed object
   # will receive the handle_query_response method
   # :headers<Hash>     - headers send with the request
@@ -31,6 +31,7 @@ class BubbleWrap::HTTP::Query
     @method = http_method.upcase.to_s
     @delegator = options.delete(:action) || self
     @payload = options.delete(:payload)
+    @encoding = options.delete(:encoding) || NSUTF8StringEncoding
     @files = options.delete(:files)
     @boundary = options.delete(:boundary) || BW.create_uuid
     @credentials = options.delete(:credentials) || {}
@@ -70,9 +71,7 @@ Cache policy: #{@cache_policy}, response: #{@response.inspect} >"
     if App.osx? && !response.is_a?(NSHTTPURLResponse)
       return
     end
-    @status_code = response.statusCode
-    @response_headers = response.allHeaderFields
-    @response_size = response.expectedContentLength.to_f
+    did_receive_response(response)
   end
 
   # This delegate method get called every time a chunk of data is being received
@@ -95,7 +94,11 @@ Cache policy: #{@cache_policy}, response: #{@response.inspect} >"
     log "##{@redirect_count} HTTP redirect_count: #{request.inspect} - #{self.description}"
 
     if @redirect_count >= 30
-      @response.error_message = "Too many redirections"
+      @response.error = NSError.errorWithDomain('BubbleWrap::HTTP', code:NSURLErrorHTTPTooManyRedirects, 
+                                                userInfo:NSDictionary.dictionaryWithObject("Too many redirections",
+                                                                                           forKey: NSLocalizedDescriptionKey))
+      @response.error_message = @response.error.localizedDescription
+      show_status_indicator false
       @request.done_loading!
       call_delegator_with_response
       nil
@@ -109,6 +112,7 @@ Cache policy: #{@cache_policy}, response: #{@response.inspect} >"
     log "HTTP Connection to #{@url.absoluteString} failed #{error.localizedDescription}"
     show_status_indicator false
     @request.done_loading!
+    @response.error = error
     @response.error_message = error.localizedDescription
     call_delegator_with_response
   end
@@ -139,15 +143,27 @@ Cache policy: #{@cache_policy}, response: #{@response.inspect} >"
         log "auth challenged, answered with credentials: #{credentials.inspect}"
       end
     else
+      did_receive_response(challenge.failureResponse)
+      @response.update(status_code: status_code, headers: response_headers, url: @url, original_url: @original_url)
       challenge.sender.cancelAuthenticationChallenge(challenge)
       log 'Auth Failed :('
     end
   end
 
+  def cancel
+    @connection.cancel
+    show_status_indicator false
+    @request.done_loading!
+  end
 
   private
 
-  private
+  def did_receive_response(response)
+    @status_code = response.statusCode
+    @response_headers = response.allHeaderFields
+    @response_size = response.expectedContentLength.to_f
+  end
+
   def show_status_indicator(show)
     if App.ios?
       UIApplication.sharedApplication.networkActivityIndicatorVisible = show
@@ -173,7 +189,7 @@ Cache policy: #{@cache_policy}, response: #{@response.inspect} >"
 
   def set_content_type
     return if headers_provided?
-    return if (@method == "GET" || @method == "HEAD")
+    return if (@method == "GET" || @method == "HEAD" || @method == "OPTIONS")
     @headers ||= {}
     @headers["Content-Type"] = case @format
     when :json
@@ -200,7 +216,7 @@ Cache policy: #{@cache_policy}, response: #{@response.inspect} >"
   end
 
   def create_request_body
-    return nil if (@method == "GET" || @method == "HEAD")
+    return nil if (@method == "GET" || @method == "HEAD" || @method == "OPTIONS")
     return nil unless (@payload || @files)
 
     body = NSMutableData.data
@@ -217,7 +233,10 @@ Cache policy: #{@cache_policy}, response: #{@response.inspect} >"
     if @payload.is_a?(NSData)
       body.appendData(@payload)
     elsif @payload.is_a?(String)
-      body.appendData(@payload.dataUsingEncoding NSUTF8StringEncoding)
+      body.appendData(@payload.to_encoded_data @encoding)
+    elsif @format == :json
+      json_string = BW::JSON.generate(@payload)
+      body.appendData(json_string.to_encoded_data @encoding)
     else
       append_form_params(body)
     end
@@ -231,7 +250,7 @@ Cache policy: #{@cache_policy}, response: #{@response.inspect} >"
       s += "Content-Disposition: form-data; name=\"#{key}\"\r\n\r\n"
       s += value.to_s
       s += "\r\n"
-      body.appendData(s.dataUsingEncoding NSUTF8StringEncoding)
+      body.appendData(s.to_encoded_data @encoding)
     end
     @payload_or_files_were_appended = true
     body
@@ -265,9 +284,9 @@ Cache policy: #{@cache_policy}, response: #{@response.inspect} >"
       s += "Content-Disposition: form-data; name=\"#{key}\"; filename=\"#{file[:filename]}\"\r\n"
       s += "Content-Type: application/octet-stream\r\n\r\n"
       file_data = NSMutableData.new
-      file_data.appendData(s.dataUsingEncoding NSUTF8StringEncoding)
+      file_data.appendData(s.to_encoded_data @encoding)
       file_data.appendData(file[:data])
-      file_data.appendData("\r\n".dataUsingEncoding NSUTF8StringEncoding)
+      file_data.appendData("\r\n".to_encoded_data @encoding)
       body.appendData(file_data)
     end
     @payload_or_files_were_appended = true
@@ -275,12 +294,12 @@ Cache policy: #{@cache_policy}, response: #{@response.inspect} >"
   end
 
   def append_body_boundary(body)
-    body.appendData("--#{@boundary}--\r\n".dataUsingEncoding NSUTF8StringEncoding)
+    body.appendData("--#{@boundary}--\r\n".to_encoded_data @encoding)
   end
 
   def create_url(url_string)
     url_string = url_string.stringByAddingPercentEscapesUsingEncoding NSUTF8StringEncoding
-    if (@method == "GET" || @method == "HEAD") && @payload
+    if (@method == "GET" || @method == "HEAD" || @method == "OPTIONS") && @payload
       unless @payload.empty?
         convert_payload_to_url if @payload.is_a?(Hash)
         url_string += "?#{@payload}"
@@ -299,8 +318,9 @@ Cache policy: #{@cache_policy}, response: #{@response.inspect} >"
   end
 
   def escape(string)
-    if string
-      CFURLCreateStringByAddingPercentEscapes nil, string.to_s, nil, "!*'();:@&=+$,/?%#[]", KCFStringEncodingUTF8
+    string_to_escape = string.to_s
+    if string_to_escape
+      CFURLCreateStringByAddingPercentEscapes nil, string_to_escape, nil, "!*'();:@&=+$,/?%#[]", KCFStringEncodingUTF8
     end
   end
 
@@ -364,4 +384,4 @@ Cache policy: #{@cache_policy}, response: #{@response.inspect} >"
     NSURLConnection.connectionWithRequest(request, delegate:delegate)
   end
 
-end
+end; end; end
