@@ -17,6 +17,8 @@ module BubbleWrap
 
       MEDIA_TYPE_HASH = {movie: KUTTypeMovie, image: KUTTypeImage}
 
+      CAMERA_LOCATIONS = [:front, :rear, :none]
+
       # The camera location; if :none, then we can't use source_type: :camera
       # in #picture
       # [:front, :rear, :none]
@@ -33,8 +35,16 @@ module BubbleWrap
       end
 
       # For uploading photos from the library.
-      def self.any
-        @any ||= Camera.new
+      class << self
+        def any
+          @any ||= Camera.new
+        end
+        alias_method "photo_library", "any"
+      end
+      
+      def popover_from(view)
+        @popover_in_view = view
+        self
       end
 
       def initialize(location = :none)
@@ -42,7 +52,7 @@ module BubbleWrap
       end
 
       def location=(location)
-        if not [:front, :rear, :none].member? location
+        if not CAMERA_LOCATIONS.member? location
           raise Error::INVALID_CAMERA_LOCATION, "#{location} is not a valid camera location"
         end
         @location = location
@@ -123,17 +133,18 @@ module BubbleWrap
         presenting_controller ||= App.window.rootViewController.presentedViewController # May be nil, but handles use case of container views
         presenting_controller ||= App.window.rootViewController
 
-        if Device.ipad?
-          rect = CGRectMake(
-            (Device.orientation == :portrait ? Device.screen.width/2 : Device.screen.height/2),
-            (Device.orientation == :portrait ? Device.screen.height/2 : Device.screen.width/2),
-            1,
-            1
-          )
-          popover.presentPopoverFromRect(rect, inView: presenting_controller.view, permittedArrowDirections: 0, animated: @options[:animated])
+        # use popover for iPad (ignore on iPhone)
+        if Device.ipad? and source_type==UIImagePickerControllerSourceTypePhotoLibrary and @popover_in_view
+          @popover = UIPopoverController.alloc.initWithContentViewController(picker)
+          @popover.presentPopoverFromRect(@popover_in_view.bounds, inView:@popover_in_view, permittedArrowDirections:UIPopoverArrowDirectionAny, animated:@options[:animated])
         else
           presenting_controller.presentViewController(self.picker, animated:@options[:animated], completion: lambda {})
         end
+      end
+
+      # iPad popover is dismissed
+      def popoverControllerDidDismissPopover(popoverController)
+        @popover = nil
       end
 
       ##########
@@ -163,6 +174,11 @@ module BubbleWrap
 
         @callback.call(callback_info)
         dismiss
+        # iPad popover? close it
+        if @popover
+          @popover.dismissPopoverAnimated(@options[:animated])
+          @popover = nil
+        end
       end
 
       ##########
